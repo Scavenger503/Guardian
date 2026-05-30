@@ -85,23 +85,31 @@ func (w *Watcher) poll(ctx context.Context) {
 func (w *Watcher) checkContainer(ctx context.Context, containerID, imageName, imageID string) {
 	debugLog("Checking %s", imageName)
 
+	// Inspect the container early so we always have the real name for notifications.
+	inspect, err := w.docker.ContainerInspect(ctx, containerID)
+	if err != nil {
+		log("ERROR: could not inspect container %s: %v", containerID[:12], err)
+		return
+	}
+	name := cleanName(inspect.Name)
+
 	// Get local digest from the running image.
 	info, _, err := w.docker.ImageInspectWithRaw(ctx, imageID)
 	if err != nil {
-		log("ERROR: could not inspect image for %s: %v", imageName, err)
+		log("ERROR: could not inspect image for %s: %v", name, err)
 		return
 	}
 
 	localDigest := extractDigest(info.RepoDigests, imageName)
 	if localDigest == "" {
-		debugLog("Could not determine local digest for %s — skipping", imageName)
+		debugLog("Could not determine local digest for %s — skipping", name)
 		return
 	}
 
 	// Get remote digest without downloading the full image.
 	dist, err := w.docker.DistributionInspect(ctx, imageName, "")
 	if err != nil {
-		log("ERROR: could not fetch remote digest for %s: %v", imageName, err)
+		log("ERROR: could not fetch remote digest for %s: %v", name, err)
 		return
 	}
 
@@ -109,33 +117,33 @@ func (w *Watcher) checkContainer(ctx context.Context, containerID, imageName, im
 
 	// Cache hit — we already updated to this digest, skip.
 	if cached, ok := w.knownDigests[imageName]; ok && cached == remoteDigest {
-		debugLog("%s is up to date (cache hit: %s)", imageName, shortDigest(remoteDigest))
+		debugLog("%s is up to date (cache hit: %s)", name, shortDigest(remoteDigest))
 		return
 	}
 
 	// Local matches remote — up to date, sync cache.
 	if localDigest == remoteDigest {
-		debugLog("%s is up to date (%s)", imageName, shortDigest(localDigest))
+		debugLog("%s is up to date (%s)", name, shortDigest(localDigest))
 		w.knownDigests[imageName] = localDigest
 		return
 	}
 
-	log("Update available for %s: %s → %s", imageName, shortDigest(localDigest), shortDigest(remoteDigest))
+	log("Update available for %s: %s → %s", name, shortDigest(localDigest), shortDigest(remoteDigest))
 
 	// Notify before pulling.
-	w.notifier.UpdateFound(containerName(containerID), imageName, localDigest, remoteDigest)
+	w.notifier.UpdateFound(name, imageName, localDigest, remoteDigest)
 
-	// Apply the update.
+	// Apply the update using the inspect result we already have.
 	if err := w.updateContainer(ctx, containerID, imageName); err != nil {
-		log("ERROR: failed to update %s: %v", imageName, err)
-		w.notifier.UpdateFailed(containerName(containerID), imageName, err)
+		log("ERROR: failed to update %s: %v", name, err)
+		w.notifier.UpdateFailed(name, imageName, err)
 		return
 	}
 
 	// Cache the new digest immediately to prevent re-detection on next poll.
 	w.knownDigests[imageName] = remoteDigest
-	log("Successfully updated %s", imageName)
-	w.notifier.UpdateApplied(containerName(containerID), imageName)
+	log("Successfully updated %s", name)
+	w.notifier.UpdateApplied(name, imageName)
 }
 
 func (w *Watcher) updateContainer(ctx context.Context, containerID, imageName string) error {
@@ -148,24 +156,26 @@ func (w *Watcher) updateContainer(ctx context.Context, containerID, imageName st
 	defer reader.Close()
 	io.Copy(io.Discard, reader)
 
-	// Capture current container config before stopping.
+	// Inspect before stopping to capture the full config.
 	inspect, err := w.docker.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return fmt.Errorf("container inspect failed: %w", err)
 	}
 
-	log("Stopping container %s...", inspect.Name)
+	name := cleanName(inspect.Name)
+
+	log("Stopping container %s...", name)
 	timeout := 30
 	if err := w.docker.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("container stop failed: %w", err)
 	}
 
-	log("Removing old container %s...", inspect.Name)
+	log("Removing old container %s...", name)
 	if err := w.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{}); err != nil {
 		return fmt.Errorf("container remove failed: %w", err)
 	}
 
-	log("Creating new container %s...", inspect.Name)
+	log("Creating new container %s...", name)
 	created, err := w.docker.ContainerCreate(
 		ctx,
 		inspect.Config,
@@ -178,7 +188,7 @@ func (w *Watcher) updateContainer(ctx context.Context, containerID, imageName st
 		return fmt.Errorf("container create failed: %w", err)
 	}
 
-	log("Starting container %s...", inspect.Name)
+	log("Starting container %s...", name)
 	if err := w.docker.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("container start failed: %w", err)
 	}
@@ -186,11 +196,9 @@ func (w *Watcher) updateContainer(ctx context.Context, containerID, imageName st
 	return nil
 }
 
-func containerName(id string) string {
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
+// cleanName strips the leading slash Docker adds to container names.
+func cleanName(name string) string {
+	return strings.TrimPrefix(name, "/")
 }
 
 func extractDigest(repoDigests []string, imageName string) string {
