@@ -14,7 +14,7 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("Starting Guardian 🛡️")
+	log.Println("Starting Guardian 🛡")
 
 	cfg := config.Load()
 
@@ -23,6 +23,7 @@ func main() {
 	}
 
 	n := notifier.New(cfg.TelegramToken, cfg.TelegramChatID)
+	n.Send("🛡️ *Guardian is online* — watching your containers.")
 
 	w, err := watcher.New(cfg, n)
 	if err != nil {
@@ -32,7 +33,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
