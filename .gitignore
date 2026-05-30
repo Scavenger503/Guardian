@@ -1,0 +1,19 @@
+# Binary
+/guardian
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/

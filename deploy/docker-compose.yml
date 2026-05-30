@@ -1,0 +1,13 @@
+services:
+  guardian:
+    image: ghcr.io/scavenger503/guardian:latest
+    container_name: guardian
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID=YOUR_CHAT_ID
+      - POLL_INTERVAL=300
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - guardian.disable=true
