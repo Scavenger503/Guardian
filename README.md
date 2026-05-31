@@ -1,6 +1,6 @@
 # Guardian 🛡️
 
-<img width="920" height="920" alt="Guardian-Logo" src="https://github.com/user-attachments/assets/7704e7ce-fa40-4aa4-8c70-6a8c727e3db4" />
+<img width="620" height="620" alt="Guardian-Logo" src="https://github.com/user-attachments/assets/7704e7ce-fa40-4aa4-8c70-6a8c727e3db4" />
 
 
 A lightweight, self-hosted Docker container update watcher written in Go. Guardian monitors labeled containers, detects new image versions via digest comparison, and automatically pulls and restarts updated containers — with Telegram notifications at every step.
